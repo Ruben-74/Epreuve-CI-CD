@@ -1,0 +1,148 @@
+
+# Nom du workflow (affiché dans l'interface GitHub)
+name: CI Pipeline
+
+# Déclencheurs : quand ce workflow doit s'exécuter ?
+on:
+  # À chaque push sur n'importe quelle branche
+  push:
+    branches: ['*']
+  
+  # À chaque pull request vers main
+  pull_request:
+    branches: [main]
+  
+  # Permet de lancer manuellement depuis l'interface GitHub
+  workflow_dispatch:
+
+# Définition des jobs (tâches à exécuter)
+jobs:
+  
+  # ============================================
+  # JOB 1 : BUILD - Installer les dépendances
+  # ============================================
+  build:
+    # Machine virtuelle sur laquelle exécuter
+    runs-on: ubuntu-latest
+    
+    steps:
+      # Étape 1 : Récupérer le code source
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      # Étape 2 : Installer Node.js
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'  # Met en cache les dépendances npm
+      
+      # Étape 3 : Installer les dépendances
+      - name: 📚 Install dependencies
+        run: npm ci
+      
+      # Étape 4 : Sauvegarder pour les jobs suivants
+      - name: 💾 Cache build
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+
+  # ============================================
+  # JOB 2 : TEST - Exécuter les tests
+  # ============================================
+  test:
+    # Ce job a besoin que "build" soit terminé
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      # Restaurer le cache des dépendances
+      - name: 📂 Restore cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+      
+      # Installer si le cache n'existe pas
+      - name: 📚 Install dependencies
+        run: npm ci
+      
+      # Exécuter les tests
+      - name: 🧪 Run tests
+        run: npm test
+      
+      # Afficher un message de succès
+      - name: ✅ Tests passed
+        run: echo "All tests passed successfully!"
+
+  # ============================================
+  # JOB 3 : DOCKER - Construire l'image
+  # ============================================
+  docker:
+    # Ce job a besoin que "test" soit terminé
+    needs: test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      # Construire l'image Docker
+      - name: 🐳 Build Docker image
+        run: |
+          docker build -t tp0-devsecops:${{ github.sha }} .
+          docker build -t tp0-devsecops:latest .
+      
+      # Vérifier que l'image existe
+      - name: 🔍 Verify image
+        run: docker images tp0-devsecops
+      
+      # Tester que le container démarre correctement
+      - name: 🧪 Test container
+        run: |
+          # Démarrer le container
+          docker run -d -p 3000:3000 --name test-container tp0-devsecops:latest
+          
+          # Attendre que l'app démarre
+          sleep 5
+          
+          # Tester l'endpoint health
+          curl --fail http://localhost:3000/health
+          
+          # Nettoyer
+          docker stop test-container
+          docker rm test-container
+      
+      - name: ✅ Docker build successful
+        run: echo "Docker image built and tested successfully!"
+
+  # ============================================
+  # JOB 4 : SUMMARY - Résumé final
+  # ============================================
+  summary:
+    needs: [build, test, docker]
+    runs-on: ubuntu-latest
+    if: always()  # S'exécute même si les jobs précédents échouent
+    
+    steps:
+      - name: 📊 Pipeline Summary
+        run: |
+          echo "================================"
+          echo "       PIPELINE SUMMARY         "
+          echo "================================"
+          echo "Build:  ${{ needs.build.result }}"
+          echo "Test:   ${{ needs.test.result }}"
+          echo "Docker: ${{ needs.docker.result }}"
+          echo "================================"

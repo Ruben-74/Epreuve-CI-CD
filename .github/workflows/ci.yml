@@ -1,0 +1,145 @@
+name: Task API DevSecOps Pipeline
+
+on:
+  push:
+    branches: ['*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # ============================================
+  # STAGE 1 : BUILD - Installation & Vérification
+  # ============================================
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: src/package-lock.json
+
+      - name: 📚 Install dependencies
+        working-directory: ./src
+        run: npm ci
+
+      - name: 💾 Cache node_modules
+        uses: actions/cache@v4
+        with:
+          path: src/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('src/package-lock.json') }}
+
+  # ============================================
+  # STAGE 2 : TEST - Tests unitaires
+  # ============================================
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 📂 Restore cache
+        uses: actions/cache@v4
+        with:
+          path: src/node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('src/package-lock.json') }}
+
+      - name: 🧪 Run unit tests
+        working-directory: ./src
+        run: npm test
+
+  # ============================================
+  # STAGE 3 : SECURITY - Scans & Quality Gate
+  # ============================================
+  security:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Important pour Gitleaks (scan d'historique)
+
+      # 1. Secret Detection
+      - name: 🔑 Secret Detection (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 2. SAST (Analyse statique du code)
+      - name: 🛡️ SAST Scan (Semgrep)
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/src" returntocorp/semgrep semgrep \
+            --config=p/nodejs --error --severity ERROR --exclude='*.test.js'
+
+      # 3. SCA (Scan des dépendances npm)
+      - name: 🔍 Dependency Scan (Trivy SCA)
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: './src'
+          severity: 'CRITICAL'
+          exit-code: '1' # Quality Gate : Échec si vulnérabilité critique
+
+  # ============================================
+  # STAGE 4 : PACKAGE - Docker Build & Scan
+  # ============================================
+  package:
+    needs: security
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🐳 Build Docker image
+        run: |
+          docker build -t taskapi:${{ github.sha }} .
+          docker tag taskapi:${{ github.sha }} taskapi:latest
+
+      # 4. Container Scan (Vérification de l'image finale)
+      - name: 🛡️ Container Image Scan (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'taskapi:${{ github.sha }}'
+          severity: 'CRITICAL'
+          exit-code: '1' # Bloque si l'OS (Alpine) est vulnérable
+
+  # ============================================
+  # STAGE 5 : DEPLOY - Déploiement Continu
+  # ============================================
+  deploy:
+    needs: package
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: 🚀 Deployment to Production
+        run: |
+          echo "Déploiement de l'image taskapi:${{ github.sha }} en cours..."
+          # Simulation d'un déploiement réussi
+          echo "Status: SUCCESS"
+
+  # ============================================
+  # SUMMARY - Résumé final
+  # ============================================
+  summary:
+    needs: [build, test, security, package, deploy]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: 📊 Pipeline Summary
+        run: |
+          echo "================================"
+          echo "      PIPELINE SUMMARY          "
+          echo "================================"
+          echo "Build:    ${{ needs.build.result }}"
+          echo "Test:     ${{ needs.test.result }}"
+          echo "Security: ${{ needs.security.result }}"
+          echo "Package:  ${{ needs.package.result }}"
+          echo "Deploy:   ${{ needs.deploy.result }}"
+          echo "================================"

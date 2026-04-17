@@ -1,0 +1,19 @@
+# Dépendances (seront réinstallées dans le container)
+node_modules
+
+# Fichiers de test (pas besoin en production)
+*.test.js
+
+# Fichiers Git
+.git
+.gitignore
+
+# Documentation
+README.md
+
+# Fichiers de configuration IDE
+.vscode
+.idea
+
+# Logs
+*.log

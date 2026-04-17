@@ -1,0 +1,17 @@
+# Dépendances
+node_modules/
+
+# Logs
+*.log
+
+# Variables d'environnement
+# .env pour les secrets, pour ne pas qu'il soit push sur le github
+.env 
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
