@@ -7,6 +7,7 @@ node_modules
 # Fichiers Git
 .git
 .gitignore
+./k8s/secret.yaml
 
 # Documentation
 README.md
